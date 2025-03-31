@@ -1,4 +1,5 @@
-import streamlit as st
+
+import streamlit as st 
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -6,10 +7,10 @@ import os
 from io import StringIO
 
 st.set_page_config(page_title="Data Preprocessing UI", layout="wide")
-st.title("Data Collection Platform")
+st.title("Sensor Data Preprocessing Platform")
 
 # 上传txt文件
-uploaded_file = st.file_uploader("Upload .txt file", type="txt")
+uploaded_file = st.file_uploader("Upload your .txt data file", type="txt")
 
 # 参数
 st.subheader("Parameter Settings")
@@ -31,7 +32,7 @@ with col5:
 
 # 通道选项
 st.subheader("Channel Selection")
-channel_input = st.text_input("Channel Selection: All or please enter channel numbers separated by commas", value="All")
+channel_input = st.text_input("Enter 'All' or channel numbers separated by commas (e.g., 1,2,5)", value="All")
 if channel_input.lower() == "all":
     selected_channels = [f"Channel_{i}" for i in range(1, 17)]
 else:
@@ -43,10 +44,17 @@ else:
         st.stop()
 
 # 保存选项
-st.subheader("Output Settings")
+st.subheader("💾 Output Settings")
 save_option = st.radio("Save as:", ["Sensor-wise", "Window-wise"])
 filename_prefix = st.text_input("Filename prefix (optional)", value="")
-output_dir = st.text_input("Storage location", value="output_data")
+
+# 添加输出模式选择
+output_mode = st.radio("Output mode:", ["Save to directory", "Download as ZIP"])
+if output_mode == "Save to directory":
+    output_dir = st.text_input("Storage location", value="output_data")
+else:
+    output_dir = "temp_output"
+
 postprocess_option = st.radio("Post-process each response value before saving:", ["None", "Divide by 10", "Multiply by 250"])
 
 # 去掉引号
@@ -70,7 +78,7 @@ if uploaded_file and st.button("Process & Visualize"):
     raw_data.dropna(inplace=True)
 
     # 显示通道图
-    st.subheader("Selected Channel Overview")
+    st.subheader("Channel Overview")
     n = len(selected_channels)
     rows = (n + 3) // 4
     fig, axes = plt.subplots(rows, 4, figsize=(16, 4 * rows), constrained_layout=True)
@@ -146,4 +154,29 @@ if uploaded_file and st.button("Process & Visualize"):
                     os.path.join(output_dir, f"{filename_prefix}{col}_Cycle{cycle+1}.csv"), index=False
                 )
 
-    st.success("Processing and saving complete!")
+    st.success("Processing complete!")
+
+    if output_mode == "Download as ZIP":
+        import zipfile
+
+        zip_filename = f"{filename_prefix}processed_data.zip"
+        zip_path = os.path.join(".", zip_filename)
+
+        with zipfile.ZipFile(zip_path, "w") as zipf:
+            for root, _, files in os.walk(output_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    zipf.write(file_path, arcname=file)
+
+        with open(zip_path, "rb") as f:
+            st.markdown("### Your ZIP is ready! Click below to download:")
+            st.download_button(
+                label="Download ZIP file",
+                data=f,
+                file_name=zip_filename,
+                mime="application/zip"
+            )
+
+        import shutil
+        shutil.rmtree(output_dir)
+        os.remove(zip_path)
