@@ -44,7 +44,7 @@ else:
         st.stop()
 
 # 保存选项
-st.subheader("💾 Output Settings")
+st.subheader("Output Settings")
 save_option = st.radio("Save as:", ["Sensor-wise", "Window-wise"])
 filename_prefix = st.text_input("Filename prefix (optional)", value="")
 
