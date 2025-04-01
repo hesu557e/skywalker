@@ -24,6 +24,7 @@ with col4:
     num_cycles = st.number_input("Number of cycles", min_value=1, value=10, step=1)
 with col5:
     response_type = st.selectbox("Response Calculation Options", [
+        "Raw Response",
         "(R - R0) / R0 * 100 (Relative %)",
         "(R - R0) / R0 (Relative Ratio)",
         "R - R0 (Absolute Difference)"
@@ -68,7 +69,30 @@ if uploaded_file and st.button("Process & Visualize"):
         raw_data[col] = pd.to_numeric(raw_data[col], errors='coerce')
     raw_data.dropna(inplace=True)
 
-    plot_data = raw_data[raw_data['Time'] > start_time] if only_after_start else raw_data
+    processed_data = raw_data.copy()
+
+    if response_type != "Raw Response":
+        baseline_row = raw_data[np.isclose(raw_data['Time'], start_time, atol=1)]
+        if baseline_row.empty:
+            st.error("Start time not found in data!")
+            st.stop()
+        baseline_values = baseline_row.iloc[0][selected_channels]
+        for col in selected_channels:
+            if response_type.startswith("(R - R0) / R0 * 100"):
+                processed_data[col] = ((raw_data[col] - baseline_values[col]) / baseline_values[col]) * 100
+            elif response_type.startswith("(R - R0) / R0"):
+                processed_data[col] = ((raw_data[col] - baseline_values[col]) / baseline_values[col])
+            elif response_type.startswith("R - R0"):
+                processed_data[col] = (raw_data[col] - baseline_values[col])
+
+    if postprocess_option == "Divide by 10":
+        for col in selected_channels:
+            processed_data[col] /= 10
+    elif postprocess_option == "Multiply by 250":
+        for col in selected_channels:
+            processed_data[col] *= 250
+
+    plot_data = processed_data[processed_data['Time'] > start_time] if only_after_start else processed_data
 
     st.subheader("Selected Channel Overview")
 
@@ -82,7 +106,7 @@ if uploaded_file and st.button("Process & Visualize"):
             ax.plot(plot_data['Time'], plot_data[col])
             ax.set_title(col)
             ax.set_xlabel("Time (s)")
-            ax.set_ylabel("Response")
+            ax.set_ylabel("Processed Response")
         for j in range(i + 1, len(axes)):
             fig.delaxes(axes[j])
         st.pyplot(fig)
@@ -96,7 +120,7 @@ if uploaded_file and st.button("Process & Visualize"):
             for cycle in range(int(num_cycles)):
                 start = start_time + cycle * window_length
                 end = start + window_length
-                window_df = raw_data[(raw_data['Time'] >= start) & (raw_data['Time'] < end)].copy()
+                window_df = processed_data[(processed_data['Time'] >= start) & (processed_data['Time'] < end)].copy()
                 if window_df.empty:
                     continue
                 time = window_df['Time'].values
@@ -105,7 +129,7 @@ if uploaded_file and st.button("Process & Visualize"):
                 ax.plot(time_normalized, response, alpha=0.7)
             ax.set_title(col)
             ax.set_xlabel("Normalized Time")
-            ax.set_ylabel("Response")
+            ax.set_ylabel("Processed Response")
         for j in range(len(selected_channels), len(norm_axes)):
             norm_fig.delaxes(norm_axes[j])
         st.pyplot(norm_fig)
@@ -113,24 +137,8 @@ if uploaded_file and st.button("Process & Visualize"):
     os.makedirs(output_dir, exist_ok=True)
 
     if save_option == "Sensor-wise":
-        baseline_row = raw_data[np.isclose(raw_data['Time'], start_time, atol=1)]
-        if baseline_row.empty:
-            st.error("Start time not found in data!")
-            st.stop()
-        baseline_values = baseline_row.iloc[0][selected_channels]
-        response_data = raw_data[raw_data['Time'] > start_time].copy()
         for col in selected_channels:
-            if response_type.startswith("(R - R0) / R0 * 100"):
-                response_data[col] = ((response_data[col] - baseline_values[col]) / baseline_values[col]) * 100
-            elif response_type.startswith("(R - R0) / R0"):
-                response_data[col] = ((response_data[col] - baseline_values[col]) / baseline_values[col])
-            else:
-                response_data[col] = (response_data[col] - baseline_values[col])
-            if postprocess_option == "Divide by 10":
-                response_data[col] /= 10
-            elif postprocess_option == "Multiply by 250":
-                response_data[col] *= 250
-            df = response_data[['Time', col]]
+            df = processed_data[['Time', col]]
             df.to_csv(os.path.join(output_dir, f"{filename_prefix}{col}_response.csv"), index=False)
 
     else:
@@ -138,24 +146,12 @@ if uploaded_file and st.button("Process & Visualize"):
         for cycle in range(int(num_cycles)):
             start = start_time + cycle * window_length
             end = start + window_length
-            window_df = raw_data[(raw_data['Time'] >= start) & (raw_data['Time'] < end)].copy()
-            baseline_row = window_df[np.isclose(window_df['Time'], start, atol=1)]
-            if baseline_row.empty:
-                continue
-            baseline_values = baseline_row.iloc[0][selected_channels]
+            window_df = processed_data[(processed_data['Time'] >= start) & (processed_data['Time'] < end)].copy()
             for col in selected_channels:
-                if response_type.startswith("(R - R0) / R0 * 100"):
-                    window_df[col] = ((window_df[col] - baseline_values[col]) / baseline_values[col]) * 100
-                elif response_type.startswith("(R - R0) / R0"):
-                    window_df[col] = ((window_df[col] - baseline_values[col]) / baseline_values[col])
-                else:
-                    window_df[col] = (window_df[col] - baseline_values[col])
-                if postprocess_option == "Divide by 10":
-                    window_df[col] /= 10
-                elif postprocess_option == "Multiply by 250":
-                    window_df[col] *= 250
                 sliced = window_df[['Time', col]]
-                sliced.to_csv(os.path.join(output_dir, f"{filename_prefix}{col}_Cycle{cycle+1}.csv"), index=False)
+                sliced.to_csv(
+                    os.path.join(output_dir, f"{filename_prefix}{col}_Cycle{cycle+1}.csv"), index=False
+                )
 
     st.success("Processing and saving complete!")
 
@@ -169,7 +165,7 @@ if uploaded_file and st.button("Process & Visualize"):
                     zipf.write(file_path, arcname=file)
         with open(zip_path, "rb") as f:
             st.download_button(
-                label="📦 Download ZIP file",
+                label="Download ZIP file",
                 data=f,
                 file_name=zip_filename,
                 mime="application/zip"
