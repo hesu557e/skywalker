@@ -1,9 +1,12 @@
-import streamlit as st
+
+import streamlit as st 
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import os
 from io import StringIO
+import zipfile
+import shutil
 
 st.set_page_config(page_title="Data Preprocessing UI", layout="wide")
 st.title("Data Collection Platform")
@@ -50,33 +53,33 @@ only_after_start = st.checkbox("Only show data after start time?")
 st.subheader("Output Settings")
 save_option = st.radio("Save as:", ["Sensor-wise", "Window-wise"])
 filename_prefix = st.text_input("Filename prefix (optional)", value="")
-output_dir = st.text_input("Storage location", value="output_data")
+
+output_mode = st.radio("Output Mode:", ["Save to directory", "Download as ZIP"])
+if output_mode == "Save to directory":
+    output_dir = st.text_input("Storage location", value="output_data")
+else:
+    output_dir = "temp_output"
+
 postprocess_option = st.radio("Post-process each response value before saving:", ["None", "Divide by 10", "Multiply by 250"])
 
-# 清理路径中的非法字符
 output_dir = output_dir.strip().strip('"').strip("'")
 
 # 主处理流程
 if uploaded_file and st.button("Process & Visualize"):
-    # 读取数据
     stringio = StringIO(uploaded_file.getvalue().decode("utf-8"))
     raw_data = pd.read_csv(stringio, header=None, skiprows=3)
 
-    # 拆分数据
     raw_data = raw_data[0].str.split(' ', expand=True)
     raw_data = raw_data.iloc[:-3, :-1]
     raw_data.columns = ['Time'] + [f"Channel_{i}" for i in range(1, 17)]
 
-    # 转换数据类型
     raw_data['Time'] = pd.to_numeric(raw_data['Time'], errors='coerce') / 1000
     for col in raw_data.columns[1:]:
         raw_data[col] = pd.to_numeric(raw_data[col], errors='coerce')
     raw_data.dropna(inplace=True)
 
-    # 根据是否勾选只显示 start_time 之后数据
     plot_data = raw_data[raw_data['Time'] > start_time] if only_after_start else raw_data
 
-    # 显示通道图
     st.subheader("Selected Channel Overview")
     n = len(selected_channels)
     rows = (n + 3) // 4
@@ -92,19 +95,15 @@ if uploaded_file and st.button("Process & Visualize"):
         fig.delaxes(axes[j])
     st.pyplot(fig)
 
-    # 创建保存文件夹
     os.makedirs(output_dir, exist_ok=True)
 
-    # 保存数据
     if save_option == "Sensor-wise":
         baseline_row = raw_data[np.isclose(raw_data['Time'], start_time, atol=1)]
         if baseline_row.empty:
             st.error("Start time not found in data!")
             st.stop()
-
         baseline_values = baseline_row.iloc[0][selected_channels]
         response_data = raw_data[raw_data['Time'] > start_time].copy()
-
         for col in selected_channels:
             if response_type.startswith("(R - R0) / R0 * 100"):
                 response_data[col] = ((response_data[col] - baseline_values[col]) / baseline_values[col]) * 100
@@ -112,12 +111,10 @@ if uploaded_file and st.button("Process & Visualize"):
                 response_data[col] = ((response_data[col] - baseline_values[col]) / baseline_values[col])
             else:
                 response_data[col] = (response_data[col] - baseline_values[col])
-
             if postprocess_option == "Divide by 10":
                 response_data[col] /= 10
             elif postprocess_option == "Multiply by 250":
                 response_data[col] *= 250
-
             df = response_data[['Time', col]]
             df.to_csv(os.path.join(output_dir, f"{filename_prefix}{col}_response.csv"), index=False)
 
@@ -127,12 +124,10 @@ if uploaded_file and st.button("Process & Visualize"):
             start = start_time + cycle * window_length
             end = start + window_length
             window_df = raw_data[(raw_data['Time'] >= start) & (raw_data['Time'] < end)].copy()
-
             baseline_row = window_df[np.isclose(window_df['Time'], start, atol=1)]
             if baseline_row.empty:
                 continue
             baseline_values = baseline_row.iloc[0][selected_channels]
-
             for col in selected_channels:
                 if response_type.startswith("(R - R0) / R0 * 100"):
                     window_df[col] = ((window_df[col] - baseline_values[col]) / baseline_values[col]) * 100
@@ -140,15 +135,33 @@ if uploaded_file and st.button("Process & Visualize"):
                     window_df[col] = ((window_df[col] - baseline_values[col]) / baseline_values[col])
                 else:
                     window_df[col] = (window_df[col] - baseline_values[col])
-
                 if postprocess_option == "Divide by 10":
                     window_df[col] /= 10
                 elif postprocess_option == "Multiply by 250":
                     window_df[col] *= 250
-
                 sliced = window_df[['Time', col]]
                 sliced.to_csv(
                     os.path.join(output_dir, f"{filename_prefix}{col}_Cycle{cycle+1}.csv"), index=False
                 )
 
     st.success("Processing and saving complete!")
+
+    if output_mode == "Download as ZIP":
+        zip_filename = f"{filename_prefix}processed_data.zip"
+        zip_path = os.path.join(".", zip_filename)
+        with zipfile.ZipFile(zip_path, "w") as zipf:
+            for root, _, files in os.walk(output_dir):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    zipf.write(file_path, arcname=file)
+
+        with open(zip_path, "rb") as f:
+            st.download_button(
+                label="📦 Download ZIP file",
+                data=f,
+                file_name=zip_filename,
+                mime="application/zip"
+            )
+
+        shutil.rmtree(output_dir)
+        os.remove(zip_path)
