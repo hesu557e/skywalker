@@ -1,4 +1,3 @@
-
 import streamlit as st 
 import pandas as pd
 import numpy as np
@@ -11,10 +10,8 @@ import shutil
 st.set_page_config(page_title="Data Preprocessing UI", layout="wide")
 st.title("Data Collection Platform")
 
-# 上传原始txt文件
 uploaded_file = st.file_uploader("Upload .txt file", type="txt")
 
-# 参数输入区
 st.subheader("Parameter Settings")
 col1, col2, col3, col4, col5 = st.columns(5)
 with col1:
@@ -32,7 +29,6 @@ with col5:
         "R - R0 (Absolute Difference)"
     ])
 
-# 显示通道图前的选项
 st.subheader("Channel Selection")
 channel_input = st.text_input("Channel Selection: All or please enter channel numbers separated by commas", value="All")
 if channel_input.lower() == "all":
@@ -45,11 +41,9 @@ else:
         st.error("Invalid channel input. Please enter numbers like: 1, 2, 5")
         st.stop()
 
-# 显示是否只看 start_time 之后的图
 st.subheader("Plotting Option")
 only_after_start = st.checkbox("Only show data after start time?")
 
-# 保存选项
 st.subheader("Output Settings")
 save_option = st.radio("Save as:", ["Sensor-wise", "Window-wise"])
 filename_prefix = st.text_input("Filename prefix (optional)", value="")
@@ -61,18 +55,14 @@ else:
     output_dir = "temp_output"
 
 postprocess_option = st.radio("Post-process each response value before saving:", ["None", "Divide by 10", "Multiply by 250"])
-
 output_dir = output_dir.strip().strip('"').strip("'")
 
-# 主处理流程
 if uploaded_file and st.button("Process & Visualize"):
     stringio = StringIO(uploaded_file.getvalue().decode("utf-8"))
     raw_data = pd.read_csv(stringio, header=None, skiprows=3)
-
     raw_data = raw_data[0].str.split(' ', expand=True)
     raw_data = raw_data.iloc[:-3, :-1]
     raw_data.columns = ['Time'] + [f"Channel_{i}" for i in range(1, 17)]
-
     raw_data['Time'] = pd.to_numeric(raw_data['Time'], errors='coerce') / 1000
     for col in raw_data.columns[1:]:
         raw_data[col] = pd.to_numeric(raw_data[col], errors='coerce')
@@ -81,19 +71,44 @@ if uploaded_file and st.button("Process & Visualize"):
     plot_data = raw_data[raw_data['Time'] > start_time] if only_after_start else raw_data
 
     st.subheader("Selected Channel Overview")
-    n = len(selected_channels)
-    rows = (n + 3) // 4
-    fig, axes = plt.subplots(rows, 4, figsize=(16, 4 * rows), constrained_layout=True)
-    axes = axes.flatten()
-    for i, col in enumerate(selected_channels):
-        ax = axes[i]
-        ax.plot(plot_data['Time'], plot_data[col])
-        ax.set_title(col)
-        ax.set_xlabel("Time (s)")
-        ax.set_ylabel("Response")
-    for j in range(i + 1, len(axes)):
-        fig.delaxes(axes[j])
-    st.pyplot(fig)
+
+    if save_option == "Sensor-wise":
+        n = len(selected_channels)
+        rows = (n + 3) // 4
+        fig, axes = plt.subplots(rows, 4, figsize=(16, 4 * rows), constrained_layout=True)
+        axes = axes.flatten()
+        for i, col in enumerate(selected_channels):
+            ax = axes[i]
+            ax.plot(plot_data['Time'], plot_data[col])
+            ax.set_title(col)
+            ax.set_xlabel("Time (s)")
+            ax.set_ylabel("Response")
+        for j in range(i + 1, len(axes)):
+            fig.delaxes(axes[j])
+        st.pyplot(fig)
+
+    elif save_option == "Window-wise":
+        window_length = exposure_time + flushing_time
+        norm_fig, norm_axes = plt.subplots(4, 4, figsize=(20, 16), constrained_layout=True)
+        norm_axes = norm_axes.flatten()
+        for idx, col in enumerate(selected_channels):
+            ax = norm_axes[idx]
+            for cycle in range(int(num_cycles)):
+                start = start_time + cycle * window_length
+                end = start + window_length
+                window_df = raw_data[(raw_data['Time'] >= start) & (raw_data['Time'] < end)].copy()
+                if window_df.empty:
+                    continue
+                time = window_df['Time'].values
+                response = window_df[col].values
+                time_normalized = (time - np.min(time)) / (np.max(time) - np.min(time) + 1e-9)
+                ax.plot(time_normalized, response, alpha=0.7)
+            ax.set_title(col)
+            ax.set_xlabel("Normalized Time")
+            ax.set_ylabel("Response")
+        for j in range(len(selected_channels), len(norm_axes)):
+            norm_fig.delaxes(norm_axes[j])
+        st.pyplot(norm_fig)
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -140,9 +155,7 @@ if uploaded_file and st.button("Process & Visualize"):
                 elif postprocess_option == "Multiply by 250":
                     window_df[col] *= 250
                 sliced = window_df[['Time', col]]
-                sliced.to_csv(
-                    os.path.join(output_dir, f"{filename_prefix}{col}_Cycle{cycle+1}.csv"), index=False
-                )
+                sliced.to_csv(os.path.join(output_dir, f"{filename_prefix}{col}_Cycle{cycle+1}.csv"), index=False)
 
     st.success("Processing and saving complete!")
 
@@ -154,7 +167,6 @@ if uploaded_file and st.button("Process & Visualize"):
                 for file in files:
                     file_path = os.path.join(root, file)
                     zipf.write(file_path, arcname=file)
-
         with open(zip_path, "rb") as f:
             st.download_button(
                 label="📦 Download ZIP file",
@@ -162,6 +174,5 @@ if uploaded_file and st.button("Process & Visualize"):
                 file_name=zip_filename,
                 mime="application/zip"
             )
-
         shutil.rmtree(output_dir)
         os.remove(zip_path)
