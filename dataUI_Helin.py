@@ -1,5 +1,4 @@
-
-import streamlit as st 
+import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -7,12 +6,12 @@ import os
 from io import StringIO
 
 st.set_page_config(page_title="Data Preprocessing UI", layout="wide")
-st.title("Sensor Data Preprocessing Platform")
+st.title("Data Collection Platform")
 
-# 上传txt文件
-uploaded_file = st.file_uploader("Upload your .txt data file", type="txt")
+# 上传原始txt文件
+uploaded_file = st.file_uploader("Upload .txt file", type="txt")
 
-# 参数
+# 参数输入区
 st.subheader("Parameter Settings")
 col1, col2, col3, col4, col5 = st.columns(5)
 with col1:
@@ -30,9 +29,9 @@ with col5:
         "R - R0 (Absolute Difference)"
     ])
 
-# 通道选项
+# 显示通道图前的选项
 st.subheader("Channel Selection")
-channel_input = st.text_input("Enter 'All' or channel numbers separated by commas (e.g., 1,2,5)", value="All")
+channel_input = st.text_input("Channel Selection: All or please enter channel numbers separated by commas", value="All")
 if channel_input.lower() == "all":
     selected_channels = [f"Channel_{i}" for i in range(1, 17)]
 else:
@@ -43,21 +42,18 @@ else:
         st.error("Invalid channel input. Please enter numbers like: 1, 2, 5")
         st.stop()
 
+# 显示是否只看 start_time 之后的图
+st.subheader("Plotting Option")
+only_after_start = st.checkbox("Only show data after start time?")
+
 # 保存选项
 st.subheader("Output Settings")
 save_option = st.radio("Save as:", ["Sensor-wise", "Window-wise"])
 filename_prefix = st.text_input("Filename prefix (optional)", value="")
-
-# 添加输出模式选择
-output_mode = st.radio("Output mode:", ["Save to directory", "Download as ZIP"])
-if output_mode == "Save to directory":
-    output_dir = st.text_input("Storage location", value="output_data")
-else:
-    output_dir = "temp_output"
-
+output_dir = st.text_input("Storage location", value="output_data")
 postprocess_option = st.radio("Post-process each response value before saving:", ["None", "Divide by 10", "Multiply by 250"])
 
-# 去掉引号
+# 清理路径中的非法字符
 output_dir = output_dir.strip().strip('"').strip("'")
 
 # 主处理流程
@@ -77,15 +73,18 @@ if uploaded_file and st.button("Process & Visualize"):
         raw_data[col] = pd.to_numeric(raw_data[col], errors='coerce')
     raw_data.dropna(inplace=True)
 
+    # 根据是否勾选只显示 start_time 之后数据
+    plot_data = raw_data[raw_data['Time'] > start_time] if only_after_start else raw_data
+
     # 显示通道图
-    st.subheader("Channel Overview")
+    st.subheader("Selected Channel Overview")
     n = len(selected_channels)
     rows = (n + 3) // 4
     fig, axes = plt.subplots(rows, 4, figsize=(16, 4 * rows), constrained_layout=True)
     axes = axes.flatten()
     for i, col in enumerate(selected_channels):
         ax = axes[i]
-        ax.plot(raw_data['Time'], raw_data[col])
+        ax.plot(plot_data['Time'], plot_data[col])
         ax.set_title(col)
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("Response")
@@ -98,7 +97,6 @@ if uploaded_file and st.button("Process & Visualize"):
 
     # 保存数据
     if save_option == "Sensor-wise":
-        # 基线提取
         baseline_row = raw_data[np.isclose(raw_data['Time'], start_time, atol=1)]
         if baseline_row.empty:
             st.error("Start time not found in data!")
@@ -130,7 +128,6 @@ if uploaded_file and st.button("Process & Visualize"):
             end = start + window_length
             window_df = raw_data[(raw_data['Time'] >= start) & (raw_data['Time'] < end)].copy()
 
-            # 每个窗口自己的 baseline
             baseline_row = window_df[np.isclose(window_df['Time'], start, atol=1)]
             if baseline_row.empty:
                 continue
@@ -154,29 +151,4 @@ if uploaded_file and st.button("Process & Visualize"):
                     os.path.join(output_dir, f"{filename_prefix}{col}_Cycle{cycle+1}.csv"), index=False
                 )
 
-    st.success("Processing complete!")
-
-    if output_mode == "Download as ZIP":
-        import zipfile
-
-        zip_filename = f"{filename_prefix}processed_data.zip"
-        zip_path = os.path.join(".", zip_filename)
-
-        with zipfile.ZipFile(zip_path, "w") as zipf:
-            for root, _, files in os.walk(output_dir):
-                for file in files:
-                    file_path = os.path.join(root, file)
-                    zipf.write(file_path, arcname=file)
-
-        with open(zip_path, "rb") as f:
-            st.markdown("### Your ZIP is ready! Click below to download:")
-            st.download_button(
-                label="Download ZIP file",
-                data=f,
-                file_name=zip_filename,
-                mime="application/zip"
-            )
-
-        import shutil
-        shutil.rmtree(output_dir)
-        os.remove(zip_path)
+    st.success("Processing and saving complete!")
