@@ -64,7 +64,12 @@ if uploaded_file and st.button("Process & Visualize"):
     raw_data = raw_data[0].str.split(' ', expand=True)
     raw_data = raw_data.iloc[:-3, :-1]
     raw_data.columns = ['Time'] + [f"Channel_{i}" for i in range(1, 17)]
-    raw_data['Time'] = pd.to_numeric(raw_data['Time'], errors='coerce') / 1000
+
+    # ✅ 新增：时间格式统一处理（去掉前导0并转为秒）
+    raw_data['Time'] = raw_data['Time'].astype(str).str.lstrip('0')  # 去前导零
+    raw_data['Time'] = raw_data['Time'].replace('', '0')  # 若空字符串则为0
+    raw_data['Time'] = pd.to_numeric(raw_data['Time'], errors='coerce') / 1000  # 毫秒转秒
+
     for col in raw_data.columns[1:]:
         raw_data[col] = pd.to_numeric(raw_data[col], errors='coerce')
     raw_data.dropna(inplace=True)
