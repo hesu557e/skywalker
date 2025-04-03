@@ -65,10 +65,10 @@ if uploaded_file and st.button("Process & Visualize"):
     raw_data = raw_data.iloc[:-3, :-1]
     raw_data.columns = ['Time'] + [f"Channel_{i}" for i in range(1, 17)]
 
-    # ✅ 新增：时间格式统一处理（去掉前导0并转为秒）
-    raw_data['Time'] = raw_data['Time'].astype(str).str.lstrip('0')  # 去前导零
-    raw_data['Time'] = raw_data['Time'].replace('', '0')  # 若空字符串则为0
-    raw_data['Time'] = pd.to_numeric(raw_data['Time'], errors='coerce') / 1000  # 毫秒转秒
+    # 时间处理：去除前导0并转换为秒
+    raw_data['Time'] = raw_data['Time'].astype(str).str.lstrip('0')
+    raw_data['Time'] = raw_data['Time'].replace('', '0')
+    raw_data['Time'] = pd.to_numeric(raw_data['Time'], errors='coerce') / 1000
 
     for col in raw_data.columns[1:]:
         raw_data[col] = pd.to_numeric(raw_data[col], errors='coerce')
@@ -81,11 +81,8 @@ if uploaded_file and st.button("Process & Visualize"):
     if save_option == "Sensor-wise":
         processed_data = raw_data.copy()
         if response_type != "Raw Response":
-            baseline_row = raw_data[np.isclose(raw_data['Time'], start_time, atol=1)]
-            if baseline_row.empty:
-                st.error("Start time not found in data!")
-                st.stop()
-            baseline_values = baseline_row.iloc[0][selected_channels]
+            baseline_idx = (raw_data['Time'] - start_time).abs().idxmin()
+            baseline_values = raw_data.loc[baseline_idx, selected_channels]
             for col in selected_channels:
                 if response_type.startswith("(R - R0) / R0 * 100"):
                     processed_data[col] = ((raw_data[col] - baseline_values[col]) / baseline_values[col]) * 100
@@ -135,10 +132,8 @@ if uploaded_file and st.button("Process & Visualize"):
                     continue
 
                 if response_type != "Raw Response":
-                    baseline_row = window_df[np.isclose(window_df['Time'], start, atol=1)]
-                    if baseline_row.empty:
-                        continue
-                    baseline_val = baseline_row.iloc[0][col]
+                    baseline_idx = (window_df['Time'] - start).abs().idxmin()
+                    baseline_val = window_df.loc[baseline_idx, col]
                     if response_type.startswith("(R - R0) / R0 * 100"):
                         window_df[col] = ((window_df[col] - baseline_val) / baseline_val) * 100
                     elif response_type.startswith("(R - R0) / R0"):
