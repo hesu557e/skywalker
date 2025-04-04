@@ -126,6 +126,7 @@ if uploaded_file and st.button("Process & Visualize"):
             fig.delaxes(axes[j])
         st.pyplot(fig)
 
+        processed_data['Time'] = processed_data['Time'] - start_time
         for col in selected_channels:
             df = processed_data[['Time', col]]
             df.to_csv(os.path.join(output_dir, f"{filename_prefix}{col}_response.csv"), index=False)
