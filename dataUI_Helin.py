@@ -24,10 +24,12 @@ with col4:
     num_cycles = st.number_input("Number of cycles", min_value=1, value=10, step=1)
 with col5:
     response_type = st.selectbox("Response Calculation Options", [
-        "Raw Response",
+        "Raw",
         "(R - R0) / R0 * 100 (Relative %)",
         "(R - R0) / R0 (Relative Ratio)",
-        "R - R0 (Absolute Difference)"
+        "R - R0 (Absolute Difference)",
+        "L2 Normalization",
+        "(R0 - R) / R"
     ])
 
 st.subheader("Channel Selection")
@@ -65,7 +67,6 @@ if uploaded_file and st.button("Process & Visualize"):
     raw_data = raw_data.iloc[:-3, :-1]
     raw_data.columns = ['Time'] + [f"Channel_{i}" for i in range(1, 17)]
 
-    # 时间处理：转换为秒并归一化为从0秒开始
     raw_data['Time'] = pd.to_numeric(raw_data['Time'], errors='coerce') / 1000
     raw_data.dropna(subset=['Time'], inplace=True)
     t0 = raw_data['Time'].iloc[0]
@@ -81,7 +82,7 @@ if uploaded_file and st.button("Process & Visualize"):
 
     if save_option == "Sensor-wise":
         processed_data = raw_data.copy()
-        if response_type != "Raw Response":
+        if response_type not in ["Raw", "L2 Normalization", "(R0 - R) / R"]:
             baseline_idx = (processed_data['Time'] - start_time).abs().idxmin()
             baseline_values = processed_data.loc[baseline_idx, selected_channels]
             for col in selected_channels:
@@ -91,6 +92,16 @@ if uploaded_file and st.button("Process & Visualize"):
                     processed_data[col] = ((processed_data[col] - baseline_values[col]) / baseline_values[col])
                 elif response_type.startswith("R - R0"):
                     processed_data[col] = (processed_data[col] - baseline_values[col])
+
+        if response_type == "L2 Normalization":
+            for col in selected_channels:
+                norm = np.linalg.norm(processed_data[col])
+                processed_data[col] = processed_data[col] / norm if norm != 0 else processed_data[col]
+        elif response_type == "(R0 - R) / R":
+            baseline_idx = (processed_data['Time'] - start_time).abs().idxmin()
+            baseline_values = processed_data.loc[baseline_idx, selected_channels]
+            for col in selected_channels:
+                processed_data[col] = (baseline_values[col] - processed_data[col]) / processed_data[col]
 
         if postprocess_option == "Divide by 10":
             for col in selected_channels:
@@ -137,13 +148,19 @@ if uploaded_file and st.button("Process & Visualize"):
                 baseline_idx = (window_df['Time'] - start).abs().idxmin()
                 baseline_val = window_df.loc[baseline_idx, col]
 
-                if response_type != "Raw Response":
+                if response_type not in ["Raw", "L2 Normalization", "(R0 - R) / R"]:
                     if response_type.startswith("(R - R0) / R0 * 100"):
                         window_df[col] = ((window_df[col] - baseline_val) / baseline_val) * 100
                     elif response_type.startswith("(R - R0) / R0"):
                         window_df[col] = ((window_df[col] - baseline_val) / baseline_val)
                     elif response_type.startswith("R - R0"):
                         window_df[col] = window_df[col] - baseline_val
+
+                if response_type == "L2 Normalization":
+                    norm = np.linalg.norm(window_df[col])
+                    window_df[col] = window_df[col] / norm if norm != 0 else window_df[col]
+                elif response_type == "(R0 - R) / R":
+                    window_df[col] = (baseline_val - window_df[col]) / window_df[col]
 
                 if postprocess_option == "Divide by 10":
                     window_df[col] /= 10
@@ -152,15 +169,15 @@ if uploaded_file and st.button("Process & Visualize"):
 
                 time = window_df['Time'].values
                 response = window_df[col].values
-                time_normalized = (time - np.min(time)) / (np.max(time) - np.min(time) + 1e-9)
-                ax.plot(time_normalized, response, alpha=0.7)
+                ax.plot(time, response, alpha=0.7)
 
                 sliced = window_df[['Time', col]]
                 sliced.to_csv(
                     os.path.join(output_dir, f"{filename_prefix}{col}_Cycle{cycle+1}.csv"), index=False
                 )
             ax.set_title(col)
-            ax.set_xlabel("Normalized Time")
+            ax.set_xlabel("Time (s)")
+            ax.set_xlim(0, exposure_time + flushing_time)
             ax.set_ylabel("Processed Response")
         for j in range(len(selected_channels), len(norm_axes)):
             norm_fig.delaxes(norm_axes[j])
