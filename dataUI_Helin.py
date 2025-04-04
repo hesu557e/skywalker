@@ -167,7 +167,7 @@ if uploaded_file and st.button("Process & Visualize"):
                 elif postprocess_option == "Multiply by 250":
                     window_df[col] *= 250
 
-                time = window_df['Time'].values
+                time = window_df['Time'].values - start
                 response = window_df[col].values
                 ax.plot(time, response, alpha=0.7)
 
