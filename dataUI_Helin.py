@@ -171,6 +171,7 @@ if uploaded_file and st.button("Process & Visualize"):
                 response = window_df[col].values
                 ax.plot(time, response, alpha=0.7)
 
+                window_df['Time'] = window_df['Time'] - start
                 sliced = window_df[['Time', col]]
                 sliced.to_csv(
                     os.path.join(output_dir, f"{filename_prefix}{col}_Cycle{cycle+1}.csv"), index=False
