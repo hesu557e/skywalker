@@ -81,7 +81,7 @@ if uploaded_file and st.button("Process & Visualize"):
     st.subheader("Selected Channel Overview")
 
     if save_option == "Sensor-wise":
-        processed_data = raw_data.copy()
+        processed_data = raw_data[raw_data['Time'] >= start_time].copy()
         if response_type not in ["Raw", "L2 Normalization", "(R0 - R) / R"]:
             baseline_idx = (processed_data['Time'] - start_time).abs().idxmin()
             baseline_values = processed_data.loc[baseline_idx, selected_channels]
