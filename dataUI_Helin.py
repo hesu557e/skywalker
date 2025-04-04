@@ -65,10 +65,11 @@ if uploaded_file and st.button("Process & Visualize"):
     raw_data = raw_data.iloc[:-3, :-1]
     raw_data.columns = ['Time'] + [f"Channel_{i}" for i in range(1, 17)]
 
-    # 时间处理：去除前导0并转换为秒
-    raw_data['Time'] = raw_data['Time'].astype(str).str.lstrip('0')
-    raw_data['Time'] = raw_data['Time'].replace('', '0')
+    # 时间处理：转换为秒并归一化为从0秒开始
     raw_data['Time'] = pd.to_numeric(raw_data['Time'], errors='coerce') / 1000
+    raw_data.dropna(subset=['Time'], inplace=True)
+    t0 = raw_data['Time'].iloc[0]
+    raw_data['Time'] = raw_data['Time'] - t0
 
     for col in raw_data.columns[1:]:
         raw_data[col] = pd.to_numeric(raw_data[col], errors='coerce')
@@ -81,15 +82,15 @@ if uploaded_file and st.button("Process & Visualize"):
     if save_option == "Sensor-wise":
         processed_data = raw_data.copy()
         if response_type != "Raw Response":
-            baseline_idx = (raw_data['Time'] - start_time).abs().idxmin()
-            baseline_values = raw_data.loc[baseline_idx, selected_channels]
+            baseline_idx = (processed_data['Time'] - start_time).abs().idxmin()
+            baseline_values = processed_data.loc[baseline_idx, selected_channels]
             for col in selected_channels:
                 if response_type.startswith("(R - R0) / R0 * 100"):
-                    processed_data[col] = ((raw_data[col] - baseline_values[col]) / baseline_values[col]) * 100
+                    processed_data[col] = ((processed_data[col] - baseline_values[col]) / baseline_values[col]) * 100
                 elif response_type.startswith("(R - R0) / R0"):
-                    processed_data[col] = ((raw_data[col] - baseline_values[col]) / baseline_values[col])
+                    processed_data[col] = ((processed_data[col] - baseline_values[col]) / baseline_values[col])
                 elif response_type.startswith("R - R0"):
-                    processed_data[col] = (raw_data[col] - baseline_values[col])
+                    processed_data[col] = (processed_data[col] - baseline_values[col])
 
         if postprocess_option == "Divide by 10":
             for col in selected_channels:
@@ -123,17 +124,20 @@ if uploaded_file and st.button("Process & Visualize"):
         norm_fig, norm_axes = plt.subplots(4, 4, figsize=(20, 16), constrained_layout=True)
         norm_axes = norm_axes.flatten()
         for idx, col in enumerate(selected_channels):
+            if idx >= len(norm_axes):
+                continue
             ax = norm_axes[idx]
             for cycle in range(int(num_cycles)):
                 start = start_time + cycle * window_length
                 end = start + window_length
                 window_df = raw_data[(raw_data['Time'] >= start) & (raw_data['Time'] < end)].copy()
-                if window_df.empty:
+                if window_df.empty or col not in window_df.columns:
                     continue
 
+                baseline_idx = (window_df['Time'] - start).abs().idxmin()
+                baseline_val = window_df.loc[baseline_idx, col]
+
                 if response_type != "Raw Response":
-                    baseline_idx = (window_df['Time'] - start).abs().idxmin()
-                    baseline_val = window_df.loc[baseline_idx, col]
                     if response_type.startswith("(R - R0) / R0 * 100"):
                         window_df[col] = ((window_df[col] - baseline_val) / baseline_val) * 100
                     elif response_type.startswith("(R - R0) / R0"):
